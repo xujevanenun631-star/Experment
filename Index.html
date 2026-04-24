@@ -1,0 +1,235 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
+    <style>
+        body, html { 
+            background-color: #000; margin: 0; padding: 0; 
+            font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
+            height: 100vh; overflow: hidden; color: white;
+            -webkit-tap-highlight-color: transparent;
+        }
+
+        /* STATUS BAR */
+        .status-bar {
+            position: fixed; top: 0; left: 0; right: 0; height: 35px;
+            display: flex; align-items: center; justify-content: space-between;
+            padding: 0 18px; font-size: 14px; font-weight: 500; z-index: 9999;
+            margin-top: 5px;
+        }
+        .battery-section { display: flex; align-items: center; gap: 4px; }
+        .battery-icon {
+            width: 20px; height: 10px; border: 1px solid rgba(255,255,255,0.8);
+            border-radius: 2px; position: relative; padding: 1px;
+        }
+        .battery-icon::after {
+            content: ''; position: absolute; right: -3.5px; top: 2px;
+            width: 2px; height: 4px; background: rgba(255,255,255,0.8);
+            border-radius: 0 1px 1px 0;
+        }
+        .battery-level { height: 100%; background: #fff; border-radius: 1px; transition: width 0.3s ease; }
+
+        /* NOTIFICATION POPUP - Smaller Height Version */
+        .notification {
+            position: fixed; top: -120px; left: 50%; transform: translateX(-50%);
+            width: 92%; max-width: 360px; background: #232323; 
+            border-radius: 24px; padding: 12px 18px; /* Reduced padding */
+            box-shadow: 0 8px 30px rgba(0,0,0,0.6);
+            transition: 0.7s cubic-bezier(0.19, 1, 0.22, 1); z-index: 10000;
+        }
+        .notification.show { top: 10px; }
+        .notif-content { display: flex; align-items: center; gap: 12px; } /* Center aligned for small height */
+        
+        .cbe-logo {
+            width: 28px; height: 28px; background: #0078FF; border-radius: 50%; /* Shrunk from 32px to 28px */
+            display: flex; align-items: center; justify-content: center;
+            flex-shrink: 0; font-size: 15px; line-height: 1; /* Shrunk emoji size too */
+        }
+
+        .notif-text { flex-grow: 1; display: flex; flex-direction: column; min-width: 0; }
+        .notif-title-row { display: flex; align-items: center; justify-content: space-between; margin-bottom: 1px; }
+        .notif-title { font-weight: 700; font-size: 14px; color: #fff; }
+        .notif-time { color: #8e8e93; font-size: 12px; }
+        .notif-body { 
+            font-size: 13.5px; line-height: 1.3; color: #f2f2f2; font-weight: 400;
+            white-space: nowrap; overflow: hidden; text-overflow: ellipsis; /* Ensures it stays small */
+        }
+
+        /* CONFIG AREA */
+        #config { padding: 80px 20px 20px 20px; display: flex; flex-direction: column; gap: 12px; }
+        .input-group { background: #1c1c1e; border-radius: 14px; padding: 12px; border: 1px solid #333; }
+        .input-group label { display: block; font-size: 11px; color: #8e8e93; font-weight: 600; text-transform: uppercase; margin-bottom: 4px; }
+        .fake-input { width: 100%; color: white; font-size: 17px; outline: none; min-height: 20px; }
+        .start-btn { background: #fff; color: #000; font-weight: bold; padding: 18px; border-radius: 14px; border: none; margin-top: 10px; font-size: 16px; width: 100%; }
+
+        /* USSD MODAL */
+        #ussdModal {
+            display: none; position: absolute; top: 22%; left: 50%;
+            transform: translateX(-50%); background: #262626; 
+            width: 88%; max-width: 345px; border-radius: 28px;
+            flex-direction: column; box-shadow: 0 15px 50px rgba(0,0,0,0.8);
+            z-index: 1000;
+        }
+        .ussd-content { padding: 36px 26px 20px 26px; font-size: 16.5px; line-height: 1.45; color: #f2f2f2; }
+        .ussd-hr { height: 1.5px; background: rgba(255,255,255,0.9); width: 88%; margin: 12px auto 0 auto; }
+        .ussd-actions { display: flex; padding: 4px 0; }
+        .ussd-btn { flex: 1; padding: 25px 0; background: transparent; border: none; color: #fff; font-size: 18px; font-weight: 500; cursor: pointer; }
+        .v-sep { width: 1px; height: 28px; background: rgba(255,255,255,0.1); margin: auto 0; }
+
+        /* DIALER */
+        #dialer { display: none; flex-direction: column; justify-content: flex-end; height: 100vh; padding-bottom: 40px; background: black; position: fixed; inset: 0; z-index: 500; }
+        #dialed-number { text-align: center; font-size: 42px; font-weight: 300; height: 60px; margin-bottom: 20px; }
+        .keypad { display: grid; grid-template-columns: repeat(3, 1fr); gap: 16px; width: 280px; margin: 0 auto; }
+        .key { width: 78px; height: 78px; border-radius: 50%; background: #1a1a1a; display: flex; flex-direction: column; align-items: center; justify-content: center; font-size: 32px; }
+        .key small { font-size: 10px; font-weight: bold; margin-top: -4px; opacity: 0.7; }
+        .call-btn { width: 75px; height: 75px; border-radius: 50%; background: #34c759; display: flex; align-items: center; justify-content: center; margin: 30px auto; }
+
+        #kbShield { position: absolute; opacity: 0; pointer-events: none; top: -100px; }
+    </style>
+</head>
+<body onclick="handleGlobalClick()">
+
+    <div class="status-bar">
+        <span id="time"></span>
+        <div class="battery-section">
+            <span id="batPct">--%</span>
+            <div class="battery-icon"><div id="batLevel" class="battery-level" style="width: 0%"></div></div>
+        </div>
+    </div>
+
+    <input type="search" id="kbShield" autocomplete="off" name="q">
+
+    <div id="notif" class="notification">
+        <div class="notif-content">
+            <div class="cbe-logo">💬</div>
+            <div class="notif-text">
+                <div class="notif-title-row">
+                    <span class="notif-title">CBE</span>
+                    <span id="nTime" class="notif-time"></span>
+                </div>
+                <div id="nBody" class="notif-body"></div>
+            </div>
+        </div>
+    </div>
+
+    <div id="config">
+        <div class="input-group"><label>Sender Name</label><div class="fake-input" id="inS" contenteditable="true">Gemechis Yadasa Dagaga</div></div>
+        <div class="input-group"><label>Recipient Name</label><div class="fake-input" id="inR" contenteditable="true">Rabiya Reshid Abadilbi</div></div>
+        <div class="input-group"><label>Recipient Acc Digits</label><div class="fake-input" id="inA" contenteditable="true">9728</div></div>
+        <div class="input-group"><label>Amount</label><div class="fake-input" id="inM" contenteditable="true">5.61</div></div>
+        <button class="start-btn" onclick="launch()">SUBMIT</button>
+    </div>
+
+    <div id="ussdModal">
+        <div class="ussd-content">
+            Completed ETB<span id="vM"></span> From <span id="vS"></span> to <span id="vR"></span>-<span id="vA"></span> Amount transfer. To 6 on <span id="transDate"></span><br>
+            <span id="ftCode"></span> Service Charge<br>
+            #:Next
+        </div>
+        <div class="ussd-hr"></div>
+        <div class="ussd-actions">
+            <button class="ussd-btn" onclick="openDialer()">Cancel</button>
+            <div class="v-sep"></div>
+            <button class="ussd-btn" style="font-weight:600;" onclick="openDialer()">Send</button>
+        </div>
+    </div>
+
+    <div id="dialer">
+        <div id="dialed-number"></div>
+        <div class="keypad">
+            <div class="key" onclick="press('1')">1<small>&nbsp;</small></div>
+            <div class="key" onclick="press('2')">2<small>ABC</small></div>
+            <div class="key" onclick="press('3')">3<small>DEF</small></div>
+            <div class="key" onclick="press('4')">4<small>GHI</small></div>
+            <div class="key" onclick="press('5')">5<small>JKL</small></div>
+            <div class="key" onclick="press('6')">6<small>MNO</small></div>
+            <div class="key" onclick="press('7')">7<small>PQRS</small></div>
+            <div class="key" onclick="press('8')">8<small>TUV</small></div>
+            <div class="key" onclick="press('9')">9<small>WXYZ</small></div>
+            <div class="key" onclick="press('*')">*<small>&nbsp;</small></div>
+            <div class="key" onclick="press('0')">0<small>+</small></div>
+            <div class="key" onclick="press('#')">#<small>&nbsp;</small></div>
+        </div>
+        <div class="call-btn" onclick="location.reload()">
+            <svg width="34" height="34" viewBox="0 0 24 24" fill="white"><path d="M20.01 15.38c-1.23 0-2.43-.22-3.56-.63-.37-.14-.76-.07-1.03.21l-2.2 2.2c-2.83-1.44-5.12-3.74-6.56-6.56l2.2-2.2c.28-.28.36-.67.21-1.03-.41-1.13-.63-2.33-.63-3.56 0-.85-.7-1.55-1.55-1.55H4.05C3.2 2.99 2.5 3.69 2.5 4.54c0 9.39 7.61 17 17 17 .85 0 1.55-.7 1.55-1.55v-2.3c0-.85-.7-1.55-1.55-1.55z"/></svg>
+        </div>
+    </div>
+
+    <script>
+        let dialStr = "";
+
+        function generateFT() {
+            const prefixes = ['FT', '88', 'TX'];
+            const chars = 'ABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789';
+            let res = prefixes[Math.floor(Math.random() * prefixes.length)];
+            for (let i = 0; i < 10; i++) {
+                res += chars.charAt(Math.floor(Math.random() * chars.length));
+            }
+            return res;
+        }
+
+        if(navigator.getBattery) {
+            navigator.getBattery().then(bat => {
+                const update = () => {
+                    const level = Math.floor(bat.level * 100);
+                    document.getElementById('batPct').innerText = level + "%";
+                    document.getElementById('batLevel').style.width = level + "%";
+                };
+                update(); bat.onlevelchange = update;
+            });
+        }
+
+        function tick() {
+            const n = new Date();
+            document.getElementById("time").innerText = (n.getHours() % 12 || 12) + ":" + n.getMinutes().toString().padStart(2,'0');
+        }
+        setInterval(tick, 1000); tick();
+
+        function launch() {
+            // Fill USSD Data
+            vM.innerText = inM.innerText;
+            vS.innerText = inS.innerText; 
+            vR.innerText = inR.innerText;
+            vA.innerText = inA.innerText; 
+            document.getElementById('ftCode').innerText = generateFT();
+
+            const now = new Date();
+            const day = String(now.getDate()).padStart(2, '0');
+            const month = String(now.getMonth() + 1).padStart(2, '0');
+            document.getElementById('transDate').innerText = `${day}/${month}/${now.getFullYear()}`;
+
+            // Prep Notification
+            document.getElementById('nTime').innerText = (now.getHours() % 12 || 12) + ":" + now.getMinutes().toString().padStart(2,'0') + " PM";
+            document.getElementById('nBody').innerText = `Dear ${inS.innerText} You have successfully transferred ETB ${inM.innerText} from account...`;
+
+            // UI Transitions
+            document.getElementById('config').style.display = "none";
+            document.getElementById('ussdModal').style.display = "flex";
+
+            // Delay notification by 3 seconds (3000ms)
+            setTimeout(() => {
+                const notif = document.getElementById('notif');
+                notif.classList.add('show');
+                document.getElementById('kbShield').focus();
+                if(navigator.vibrate) navigator.vibrate([100, 50, 100]);
+                
+                setTimeout(() => notif.classList.remove('show'), 5000);
+            }, 3000);
+        }
+
+        function openDialer() {
+            document.getElementById('ussdModal').style.display = "none";
+            document.getElementById('dialer').style.display = "flex";
+        }
+
+        function press(v) { dialStr += v; document.getElementById("dialed-number").innerText = dialStr; }
+
+        function handleGlobalClick() {
+            if(document.getElementById('ussdModal').style.display === "flex") {
+                document.getElementById("kbShield").focus();
+            }
+        }
+    </script>
+</body>
+</html>
